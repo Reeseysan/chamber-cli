@@ -15,13 +15,16 @@ from chamber.persona import generate_personas
 from chamber.orchestrator import Orchestrator
 from chamber.export import export_markdown, export_encrypted
 from chamber.providers.base import LLMProvider
+from chamber.document import load_document, DocumentError
 
-VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help"}
+VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc"}
 
 HELP_TEXT = """
 Commands:
   /follow <text>      Inject a follow-up into the next round
   /rounds <n>         Set max rounds for this session
+  /depth <level>      Set depth: brief, standard, deep
+  /doc <path>         Load a document into the session
   /agents             List current panel members
   /export             Export session as markdown to stdout
   /export --encrypt   Export with passphrase encryption
@@ -81,7 +84,9 @@ class ChamberREPL:
     async def _handle_topic(self, topic: str) -> None:
         self._print()
         self._print("Generating panel...")
-        personas = await generate_personas(topic, self.provider, count=self.config.agents)
+        from chamber.config import get_word_limit
+        word_limit = get_word_limit(self.config.depth, 1)
+        personas = await generate_personas(topic, self.provider, count=self.config.agents, word_limit=word_limit)
         self.session = create_session(topic, personas)
 
         panel_names = ", ".join(p.name for p in personas)
@@ -92,6 +97,7 @@ class ChamberREPL:
             session=self.session,
             provider=self.provider,
             max_rounds=self.config.rounds,
+            depth=self.config.depth,
             on_token=self._print_token,
             on_round_start=lambda r: self._print(f"\n{'─' * 2} Round {r} {'─' * 48}\n"),
             on_agent_start=lambda name: self._print(f"[{name}]"),
@@ -145,10 +151,13 @@ class ChamberREPL:
         if cmd.name == "status":
             self._print(f"Provider: {self.config.provider}")
             self._print(f"Model: {self.config.model or 'default'}")
+            self._print(f"Depth: {self.config.depth}")
             if self.session:
                 self._print(f"Topic: {self.session.topic}")
                 self._print(f"Messages: {len(self.session.messages)}")
                 self._print(f"Round: {self.session.current_round}")
+                if self.session.document_context:
+                    self._print(f"Documents loaded: yes")
             else:
                 self._print("No active session.")
             return False
@@ -168,6 +177,35 @@ class ChamberREPL:
                 self._print(f"Max rounds set to {self.config.rounds}.")
             except ValueError:
                 self._print("Usage: /rounds <number>")
+            return False
+
+        if cmd.name == "depth":
+            level = cmd.args.strip().lower()
+            if level not in ("brief", "standard", "deep"):
+                self._print("Usage: /depth brief|standard|deep")
+                return False
+            self.config.depth = level
+            self._print(f"Depth set to {level}.")
+            return False
+
+        if cmd.name == "doc":
+            path = cmd.args.strip()
+            if not path:
+                self._print("Usage: /doc <path>")
+                return False
+            try:
+                doc_text = load_document(path)
+                if self.session:
+                    if self.session.document_context:
+                        self.session.document_context += "\n\n" + doc_text
+                    else:
+                        self.session.document_context = doc_text
+                    word_count = len(doc_text.split())
+                    self._print(f"Document loaded: {path} ({word_count:,} words)")
+                else:
+                    self._print("No active session. Start a topic first, then load documents.")
+            except DocumentError as e:
+                self._print(f"Error: {e}")
             return False
 
         if cmd.name == "export":

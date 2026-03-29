@@ -74,3 +74,15 @@ def test_parse_unknown_command():
     cmd = parse_command("/unknown thing")
     assert cmd.name == "unknown"
     assert cmd.args == "thing"
+
+
+def test_parse_depth():
+    cmd = parse_command("/depth deep")
+    assert cmd.name == "depth"
+    assert cmd.args == "deep"
+
+
+def test_parse_doc():
+    cmd = parse_command("/doc contract.pdf")
+    assert cmd.name == "doc"
+    assert cmd.args == "contract.pdf"
