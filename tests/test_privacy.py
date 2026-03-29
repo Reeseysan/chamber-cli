@@ -159,3 +159,42 @@ def test_dependency_count():
         f"Direct dependency count is {dep_count}, expected <= 6. "
         "New dependencies must be reviewed for privacy implications."
     )
+
+
+async def test_document_content_not_persisted():
+    """Document content must stay in memory, not touch disk."""
+    import tempfile
+    from chamber.models import Persona, Session
+    from chamber.orchestrator import Orchestrator
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        old_cwd = os.getcwd()
+        os.chdir(tmpdir)
+
+        try:
+            before = _snapshot_directory(tmpdir)
+
+            personas = [
+                Persona(name="A", role="R", expertise="E", avatar_emoji="🧑",
+                        system_prompt="You are A."),
+            ]
+            session = Session(
+                topic="Test",
+                personas=personas,
+                document_context="[DOCUMENT: secret.pdf]\n\nTop secret content here.",
+            )
+            provider = MemoryOnlyProvider()
+
+            orchestrator = Orchestrator(
+                session=session,
+                provider=provider,
+                max_rounds=1,
+                on_token=lambda name, token: None,
+            )
+            await orchestrator.run()
+
+            after = _snapshot_directory(tmpdir)
+            new_files = after - before
+            assert new_files == set(), f"Files written during document session: {new_files}"
+        finally:
+            os.chdir(old_cwd)
