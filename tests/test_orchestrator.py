@@ -170,3 +170,29 @@ async def test_orchestrator_handles_user_follow_up():
     user_msgs = [m for m in session.messages if m.role == "user"]
     assert len(user_msgs) == 1
     assert "privacy" in user_msgs[0].content
+
+
+async def test_orchestrator_with_document_context():
+    """Orchestrator should pass document context to experts and moderator."""
+    consensus = json.dumps({
+        "reached": True, "summary": "Done.", "key_points": ["yes"], "dissenting_views": [],
+    })
+
+    provider = ScriptedProvider(
+        responses=["Point.", "Counter.", "Summary."],
+        json_responses=[consensus],
+    )
+    session = make_session()
+    session.document_context = "[DOCUMENT: test.pdf]\n\nSome content."
+
+    orchestrator = Orchestrator(
+        session=session,
+        provider=provider,
+        max_rounds=1,
+        depth="deep",
+        on_token=lambda name, token: None,
+    )
+
+    await orchestrator.run()
+    assert session.status == "ended"
+    assert len(session.messages) > 0
