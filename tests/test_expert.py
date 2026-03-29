@@ -92,3 +92,20 @@ async def test_expert_empty_history_gets_opening_prompt():
     msgs = provider.last_messages
     assert len(msgs) == 1
     assert "opening thoughts" in msgs[0]["content"].lower() or "starting" in msgs[0]["content"].lower()
+
+
+async def test_expert_includes_document_context():
+    provider = RecordingProvider()
+    expert = ExpertAgent(persona=make_persona(), provider=provider)
+    await expert.take_turn(
+        history=[], round_number=1, on_token=lambda t: None,
+        document_context="[DOCUMENT: contract.pdf]\n\nSection 1: ...",
+    )
+    assert "contract.pdf" in provider.last_system or "Section 1" in provider.last_system
+
+
+async def test_expert_no_document_context_by_default():
+    provider = RecordingProvider()
+    expert = ExpertAgent(persona=make_persona(), provider=provider)
+    await expert.take_turn(history=[], round_number=1, on_token=lambda t: None)
+    assert "DOCUMENT" not in provider.last_system

@@ -29,11 +29,19 @@ class ExpertAgent:
                 })
         return messages
 
+    def _build_system_prompt(self, document_context: str = "") -> str:
+        """Build full system prompt with optional document context."""
+        prompt = self.persona.system_prompt
+        if document_context:
+            prompt += f"\n\nReference documents:\n{document_context}"
+        return prompt
+
     async def take_turn(
         self,
         history: list[Message],
         round_number: int,
         on_token: Callable[[str], Awaitable[None] | None],
+        document_context: str = "",
     ) -> str:
         """Take a turn in the discussion. Streams tokens via on_token. Returns full text."""
         messages = self._build_messages(history)
@@ -51,7 +59,7 @@ class ExpertAgent:
         messages[-1] = {**last, "content": last["content"] + round_hint}
 
         return await self.provider.stream_completion(
-            system=self.persona.system_prompt,
+            system=self._build_system_prompt(document_context),
             messages=messages,
             on_token=on_token,
         )
