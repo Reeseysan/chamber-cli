@@ -8,7 +8,7 @@ def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "0.2.0" in result.output
 
 
 def test_cli_help():
@@ -25,3 +25,27 @@ def test_cli_one_shot_requires_topic():
     runner = CliRunner()
     result = runner.invoke(main, ["--one-shot"])
     assert result.exit_code != 0 or "No topic" in result.output or "Missing" in result.output
+
+
+def test_cli_depth_flag():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--help"])
+    assert "--depth" in result.output
+
+
+def test_cli_persona_flag():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--help"])
+    assert "--persona" in result.output
+
+
+def test_cli_personas_flag():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--help"])
+    assert "--personas" in result.output
+
+
+def test_cli_doc_flag():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--help"])
+    assert "--doc" in result.output
