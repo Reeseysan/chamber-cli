@@ -36,5 +36,6 @@ class Session(BaseModel):
     topic: str = ""
     personas: list[Persona] = []
     messages: list[Message] = []
+    document_context: str = ""
     current_round: int = 0
-    status: str = "idle"  # idle | generating_personas | discussing | consensus | ended
+    status: str = "idle"

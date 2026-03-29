@@ -3,6 +3,35 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+WORD_LIMITS = {
+    "brief":    {1: 100, 2: 150},
+    "standard": {1: 200, 2: 350},
+    "deep":     {1: 400, 2: 600},
+}
+
+WORD_LIMIT_DEFAULT = {
+    "brief": 200,
+    "standard": 500,
+    "deep": 800,
+}
+
+SUMMARY_LIMITS = {
+    "brief": 100,
+    "standard": 200,
+    "deep": 300,
+}
+
+
+def get_word_limit(depth: str, round_number: int) -> int:
+    """Get word limit for a given depth and round number."""
+    limits = WORD_LIMITS.get(depth, WORD_LIMITS["standard"])
+    return limits.get(round_number, WORD_LIMIT_DEFAULT.get(depth, 500))
+
+
+def get_summary_limit(depth: str) -> int:
+    """Get moderator summary word limit for a given depth."""
+    return SUMMARY_LIMITS.get(depth, 200)
+
 
 @dataclass
 class Config:
@@ -10,6 +39,7 @@ class Config:
     model: str | None = None
     agents: int = 3
     rounds: int = 3
+    depth: str = "standard"
     ollama_url: str = "http://localhost:11434"
     lmstudio_url: str = "http://localhost:1234"
     proxy: str | None = None
@@ -22,11 +52,11 @@ class Config:
             "model": os.environ.get("CHAMBER_MODEL"),
             "agents": int(os.environ.get("CHAMBER_AGENTS", "3")),
             "rounds": int(os.environ.get("CHAMBER_ROUNDS", "3")),
+            "depth": os.environ.get("CHAMBER_DEPTH", "standard"),
             "ollama_url": os.environ.get("CHAMBER_OLLAMA_URL", "http://localhost:11434"),
             "lmstudio_url": os.environ.get("CHAMBER_LMSTUDIO_URL", "http://localhost:1234"),
             "proxy": os.environ.get("CHAMBER_PROXY"),
         }
-        # kwargs override env
         for key, value in overrides.items():
             if value is not None:
                 env_values[key] = value
