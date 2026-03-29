@@ -58,13 +58,31 @@ async def generate_personas(
     """Generate expert personas for a given topic."""
     prompt = GENERATE_PROMPT.format(topic=topic, count=count)
 
-    raw = await provider.completion(
-        system="You are a helpful assistant that outputs only valid JSON.",
-        messages=[{"role": "user", "content": prompt}],
-    )
+    last_error = None
+    for attempt in range(3):
+        raw = await provider.json_completion(
+            system="You are a helpful assistant that outputs only valid JSON.",
+            messages=[{"role": "user", "content": prompt}],
+        )
 
-    raw = _strip_markdown_fences(raw)
-    experts = json.loads(raw)
+        raw = _strip_markdown_fences(raw)
+        try:
+            parsed = json.loads(raw)
+            break
+        except json.JSONDecodeError as e:
+            last_error = e
+            continue
+    else:
+        raise RuntimeError(
+            f"Failed to generate valid personas after 3 attempts. "
+            f"Last error: {last_error}. Raw response: {raw[:200]}"
+        )
+
+    # Handle both {"experts": [...]} wrapper and bare [...] array
+    if isinstance(parsed, dict):
+        experts = parsed.get("experts", parsed.get("personas", list(parsed.values())[0]))
+    else:
+        experts = parsed
 
     personas = []
     for expert in experts:

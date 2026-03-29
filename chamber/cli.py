@@ -34,18 +34,48 @@ def main(topic, provider, model, agents, rounds, one_shot, proxy, save_path):
     import chamber.providers.lmstudio  # noqa: F401
     from chamber.providers import get_provider
 
-    # Create provider
-    kwargs = {"model": config.model} if config.model else {}
-    if config.provider == "ollama":
-        kwargs["base_url"] = config.ollama_url
-    elif config.provider == "lmstudio":
-        kwargs["base_url"] = config.lmstudio_url
+    llm = None
+    explicit_provider = provider is not None
 
-    try:
-        llm = get_provider(config.provider, **kwargs)
-    except KeyError:
-        click.echo(f"Unknown provider: {config.provider}", err=True)
-        sys.exit(1)
+    if explicit_provider:
+        # User explicitly chose a provider
+        kwargs = {"model": config.model} if config.model else {}
+        if config.provider == "ollama":
+            kwargs["base_url"] = config.ollama_url
+        elif config.provider == "lmstudio":
+            kwargs["base_url"] = config.lmstudio_url
+        try:
+            llm = get_provider(config.provider, **kwargs)
+        except KeyError:
+            click.echo(f"Unknown provider: {config.provider}", err=True)
+            sys.exit(1)
+    else:
+        # Auto-discover: try Ollama first, then LM Studio
+        import httpx
+
+        for name, url in [("ollama", config.ollama_url), ("lmstudio", config.lmstudio_url)]:
+            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
+            try:
+                resp = httpx.get(check_url, timeout=3)
+                kwargs = {"base_url": url}
+                if config.model:
+                    kwargs["model"] = config.model
+                llm = get_provider(name, **kwargs)
+                config.provider = name
+                break
+            except (httpx.ConnectError, httpx.TimeoutException):
+                continue
+
+        if llm is None:
+            click.echo(
+                "No local model server detected.\n"
+                f"  Ollama:    not running at {config.ollama_url}\n"
+                f"  LM Studio: not running at {config.lmstudio_url}\n\n"
+                "Install Ollama: https://ollama.com\n"
+                "Or start LM Studio's local server.",
+                err=True,
+            )
+            sys.exit(1)
 
     if one_shot:
         if not topic:

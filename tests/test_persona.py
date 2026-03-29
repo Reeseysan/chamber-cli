@@ -91,3 +91,51 @@ async def test_generate_personas_strips_markdown_fences():
 def test_generate_prompt_template():
     assert "{count}" in GENERATE_PROMPT
     assert "{topic}" in GENERATE_PROMPT
+
+
+async def test_generate_personas_retries_on_bad_json():
+    """Should retry up to 3 times on invalid JSON."""
+    call_count = 0
+
+    class RetryProvider(LLMProvider):
+        async def stream_completion(self, system, messages, on_token):
+            return ""
+
+        async def completion(self, system, messages):
+            return ""
+
+        async def json_completion(self, system, messages):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return "not valid json"
+            return MOCK_PERSONAS_JSON
+
+    provider = RetryProvider()
+    personas = await generate_personas("Test topic", provider, count=3)
+    assert len(personas) == 3
+    assert call_count == 3
+
+
+async def test_generate_personas_raises_after_3_failures():
+    class AlwaysBadProvider(LLMProvider):
+        async def stream_completion(self, system, messages, on_token):
+            return ""
+
+        async def completion(self, system, messages):
+            return ""
+
+        async def json_completion(self, system, messages):
+            return "not json"
+
+    provider = AlwaysBadProvider()
+    with pytest.raises(RuntimeError, match="Failed to generate valid personas"):
+        await generate_personas("Test topic", provider, count=3)
+
+
+async def test_generate_personas_handles_dict_wrapper():
+    """Some models wrap the array in a dict like {"experts": [...]}."""
+    wrapped = json.dumps({"experts": json.loads(MOCK_PERSONAS_JSON)})
+    provider = MockProvider(wrapped)
+    personas = await generate_personas("Test topic", provider, count=3)
+    assert len(personas) == 3
