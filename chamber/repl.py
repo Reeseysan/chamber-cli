@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 
 from chamber import __version__
@@ -18,13 +18,18 @@ from chamber.export import export_markdown, export_encrypted
 from chamber.providers.base import LLMProvider
 from chamber.document import load_document, DocumentError
 
-VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc"}
+VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc", "update"}
 
-# Auto-complete for slash commands
-_COMMAND_COMPLETER = WordCompleter(
-    [f"/{c}" for c in sorted(VALID_COMMANDS)],
-    sentence=True,
-)
+class _SlashCompleter(Completer):
+    """Show slash commands as you type — only activates when input starts with /."""
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.strip()
+        if not text.startswith("/"):
+            return
+        partial = text[1:].lower()
+        for cmd in sorted(VALID_COMMANDS):
+            if cmd.startswith(partial):
+                yield Completion(f"/{cmd}", start_position=-len(text))
 
 HELP_TEXT = """
 Commands:
@@ -38,6 +43,7 @@ Commands:
   /save <path>        Write export to a file
   /new                Clear session, start fresh topic
   /status             Show provider, model, session stats
+  /update             Check for updates and install latest version
   /help               Show this help
   /quit               Exit (session is destroyed)
 """.strip()
@@ -75,8 +81,8 @@ class ChamberREPL:
         self.orchestrator: Orchestrator | None = None
         self.prompt_session = PromptSession(
             history=InMemoryHistory(),
-            completer=_COMMAND_COMPLETER,
-            complete_while_typing=False,
+            completer=_SlashCompleter(),
+            complete_while_typing=True,
         )
 
     def _print(self, text: str = "") -> None:
@@ -261,6 +267,31 @@ class ChamberREPL:
             self.orchestrator.inject_user_message(cmd.args)
             self._print("Follow-up queued. Starting next round...")
             await self.orchestrator.run()
+            return False
+
+        if cmd.name == "update":
+            import subprocess
+            self._print(f"Current version: v{__version__}")
+            self._print("Checking for updates...")
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "chamber-cli"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if "Successfully installed" in result.stdout:
+                    new_ver = ""
+                    for line in result.stdout.splitlines():
+                        if "chamber-cli" in line.lower():
+                            new_ver = line.strip()
+                    self._print(f"Updated. {new_ver}")
+                    self._print("Restart chamber to use the new version.")
+                else:
+                    self._print(f"Already on the latest version (v{__version__}).")
+            except subprocess.TimeoutExpired:
+                self._print("Update timed out. Try: pip install --upgrade chamber-cli")
+            except Exception as e:
+                self._print(f"Update failed: {e}")
+                self._print("Try manually: pip install --upgrade chamber-cli")
             return False
 
         if cmd.name == "unknown":
