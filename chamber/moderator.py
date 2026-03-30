@@ -136,7 +136,14 @@ class ModeratorAgent:
             data = json.loads(raw)
             return ConsensusResult(**data)
         except (json.JSONDecodeError, ValueError):
+            # JSON parse failed — synthesize a summary from the raw text
+            fallback = raw.strip()[:500] if raw.strip() else ""
+            if fallback and not fallback.startswith("{"):
+                # The model returned prose instead of JSON — use it as the summary
+                summary = fallback
+            else:
+                summary = "The panel discussed multiple perspectives but did not converge on a single recommendation. Use /follow to guide the discussion or /new to try a different framing."
             return ConsensusResult(
                 reached=False,
-                summary="Unable to determine consensus at this time.",
+                summary=summary,
             )

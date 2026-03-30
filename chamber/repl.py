@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import InMemoryHistory
 
 from chamber import __version__
@@ -18,6 +19,12 @@ from chamber.providers.base import LLMProvider
 from chamber.document import load_document, DocumentError
 
 VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc"}
+
+# Auto-complete for slash commands
+_COMMAND_COMPLETER = WordCompleter(
+    [f"/{c}" for c in sorted(VALID_COMMANDS)],
+    sentence=True,
+)
 
 HELP_TEXT = """
 Commands:
@@ -66,7 +73,11 @@ class ChamberREPL:
         self.provider = provider
         self.session: Session | None = None
         self.orchestrator: Orchestrator | None = None
-        self.prompt_session = PromptSession(history=InMemoryHistory())
+        self.prompt_session = PromptSession(
+            history=InMemoryHistory(),
+            completer=_COMMAND_COMPLETER,
+            complete_while_typing=False,
+        )
 
     def _print(self, text: str = "") -> None:
         print(text, flush=True)
@@ -253,7 +264,8 @@ class ChamberREPL:
             return False
 
         if cmd.name == "unknown":
-            self._print(f"Unknown command. Type /help for available commands.")
+            cmds = " ".join(f"/{c}" for c in sorted(VALID_COMMANDS))
+            self._print(f"Unknown command. Available: {cmds}")
             return False
 
         return False

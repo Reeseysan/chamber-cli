@@ -79,4 +79,5 @@ async def test_check_consensus_handles_invalid_json():
     mod = ModeratorAgent(provider=provider)
     result = await mod.check_consensus(sample_history(), round_number=1, max_rounds=3)
     assert result.reached is False
-    assert "Unable to determine" in result.summary
+    # When JSON parsing fails but model returned prose, use it as the summary
+    assert result.summary == "not valid json at all"
