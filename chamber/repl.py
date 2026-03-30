@@ -18,7 +18,7 @@ from chamber.export import export_markdown, export_encrypted
 from chamber.providers.base import LLMProvider
 from chamber.document import load_document, DocumentError
 
-VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc", "update"}
+VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc", "update", "provider", "model"}
 
 class _SlashCompleter(Completer):
     """Show slash commands as you type — only activates when input starts with /."""
@@ -41,6 +41,8 @@ Commands:
   /export             Export session as markdown to stdout
   /export --encrypt   Export with passphrase encryption
   /save <path>        Write export to a file
+  /provider [name]    Switch provider (ollama, lmstudio) or show current
+  /model [name]       Switch model or show current
   /new                Clear session, start fresh topic
   /status             Show provider, model, session stats
   /update             Check for updates and install latest version
@@ -175,7 +177,7 @@ class ChamberREPL:
 
         if cmd.name == "status":
             self._print(f"Provider: {self.config.provider}")
-            self._print(f"Model: {self.config.model or 'default'}")
+            self._print(f"Model: {getattr(self.provider, 'model', self.config.model) or 'default'}")
             self._print(f"Depth: {self.config.depth}")
             if self.session:
                 self._print(f"Topic: {self.session.topic}")
@@ -185,6 +187,56 @@ class ChamberREPL:
                     self._print(f"Documents loaded: yes")
             else:
                 self._print("No active session.")
+            return False
+
+        if cmd.name == "provider":
+            name = cmd.args.strip().lower()
+            if not name:
+                self._print(f"Current: {self.config.provider} ({getattr(self.provider, 'model', 'default')})")
+                self._print("Available: ollama, lmstudio")
+                self._print("Usage: /provider ollama  or  /provider lmstudio")
+                return False
+            if name not in ("ollama", "lmstudio"):
+                self._print(f"Unknown provider '{name}'. Available: ollama, lmstudio")
+                return False
+            import httpx
+            from chamber.providers import get_provider
+            url = self.config.ollama_url if name == "ollama" else self.config.lmstudio_url
+            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
+            try:
+                resp = httpx.get(check_url, timeout=3)
+                kwargs = {"base_url": url}
+                # Auto-detect model
+                if name == "lmstudio":
+                    try:
+                        models = resp.json().get("data", [])
+                        if models:
+                            kwargs["model"] = models[0].get("id", "local-model")
+                    except Exception:
+                        pass
+                elif name == "ollama" and self.config.model:
+                    kwargs["model"] = self.config.model
+                self.provider = get_provider(name, **kwargs)
+                self.config.provider = name
+                self.config.model = getattr(self.provider, "model", None)
+                self._print(f"Switched to {name} ({self.config.model or 'default'})")
+            except (httpx.ConnectError, httpx.TimeoutException):
+                self._print(f"{name} is not running at {url}")
+                if name == "lmstudio":
+                    self._print("Start the server: LM Studio → Developer → Start Server")
+                else:
+                    self._print("Start Ollama: ollama serve")
+            return False
+
+        if cmd.name == "model":
+            name = cmd.args.strip()
+            if not name:
+                self._print(f"Current model: {getattr(self.provider, 'model', 'default')}")
+                self._print("Usage: /model <model-name>")
+                return False
+            self.provider.model = name
+            self.config.model = name
+            self._print(f"Model set to {name}")
             return False
 
         if cmd.name == "agents":
