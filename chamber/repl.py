@@ -94,7 +94,8 @@ class ChamberREPL:
 
     def _print_banner(self) -> None:
         self._print(f"Chamber CLI v{__version__} — Private expert panels in your terminal.")
-        self._print(f"Provider: {self.config.provider} ({self.config.model or 'default'})")
+        model_name = self.config.model or getattr(self.provider, "model", None) or "default"
+        self._print(f"Provider: {self.config.provider} ({model_name})")
         self._print()
         self._print("  Privacy: No data leaves your machine. No telemetry. No account required.")
         self._print("           All processing is local. Nothing is written to disk.")

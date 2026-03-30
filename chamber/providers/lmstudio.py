@@ -15,14 +15,20 @@ class LMStudioProvider(LLMProvider):
         self.model = model or "local-model"
 
     async def check_available(self) -> None:
-        """Check if LM Studio local server is reachable."""
+        """Check if LM Studio local server is reachable and detect loaded model."""
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                await client.get(f"{self.base_url}/v1/models")
+                resp = await client.get(f"{self.base_url}/v1/models")
+                resp.raise_for_status()
+                data = resp.json()
+                models = data.get("data", [])
+                if models and self.model == "local-model":
+                    # Auto-detect the loaded model
+                    self.model = models[0].get("id", "local-model")
         except (httpx.ConnectError, httpx.TimeoutException):
             raise ConnectionError(
-                f"LM Studio is not running at {self.base_url}. "
-                "Start the local server in LM Studio."
+                f"LM Studio is not running at {self.base_url}.\n"
+                "Start the local server: LM Studio → Developer → Start Server"
             )
 
     async def completion(self, system: str, messages: list[dict]) -> str:

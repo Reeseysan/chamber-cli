@@ -62,12 +62,22 @@ def main(topic, provider, model, agents, rounds, depth, one_shot, proxy, save_pa
         for name, url in [("ollama", config.ollama_url), ("lmstudio", config.lmstudio_url)]:
             check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
             try:
-                httpx.get(check_url, timeout=3)
+                resp = httpx.get(check_url, timeout=3)
                 kwargs = {"base_url": url}
                 if config.model:
                     kwargs["model"] = config.model
+                elif name == "lmstudio":
+                    # Auto-detect loaded model from LM Studio
+                    try:
+                        models = resp.json().get("data", [])
+                        if models:
+                            kwargs["model"] = models[0].get("id", "local-model")
+                    except Exception:
+                        pass
                 llm = get_provider(name, **kwargs)
                 config.provider = name
+                # Update config.model so banner shows the real model
+                config.model = getattr(llm, "model", config.model)
                 break
             except (httpx.ConnectError, httpx.TimeoutException):
                 continue
@@ -78,7 +88,7 @@ def main(topic, provider, model, agents, rounds, depth, one_shot, proxy, save_pa
                 f"  Ollama:    not running at {config.ollama_url}\n"
                 f"  LM Studio: not running at {config.lmstudio_url}\n\n"
                 "Install Ollama: https://ollama.com\n"
-                "Or start LM Studio's local server.",
+                "Or start LM Studio's local server in Developer tab.",
                 err=True,
             )
             sys.exit(1)
