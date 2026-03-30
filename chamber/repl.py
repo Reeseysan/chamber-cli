@@ -201,7 +201,11 @@ class ChamberREPL:
                 return False
             import httpx
             from chamber.providers import get_provider
+            from chamber.config import is_localhost
             url = self.config.ollama_url if name == "ollama" else self.config.lmstudio_url
+            if not is_localhost(url):
+                self._print(f"WARNING: {url} is not localhost. Data will leave your machine.")
+                self._print("The privacy guarantee only applies to local providers.")
             check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
             try:
                 resp = httpx.get(check_url, timeout=3)
@@ -307,6 +311,14 @@ class ChamberREPL:
             if not path:
                 self._print("Usage: /save <path>")
                 return False
+            import os
+            if os.path.exists(path):
+                confirm = await self.prompt_session.prompt_async(
+                    f"File '{path}' already exists. Overwrite? [y/N] "
+                )
+                if confirm.strip().lower() not in ("y", "yes"):
+                    self._print("Cancelled.")
+                    return False
             md = export_markdown(self.session)
             with open(path, "w") as f:
                 f.write(md)

@@ -18,12 +18,11 @@ from chamber.config import Config, get_word_limit
 @click.option("--rounds", default=None, type=int, help="Max discussion rounds (default: 3, max: 5)")
 @click.option("--depth", default=None, type=click.Choice(["brief", "standard", "deep"]), help="Discussion depth (default: standard)")
 @click.option("--one-shot", is_flag=True, help="Run discussion and exit (no REPL)")
-@click.option("--proxy", default=None, help="SOCKS5 proxy URL for remote providers")
 @click.option("--save", "save_path", default=None, help="Save export to file after discussion")
 @click.option("--persona", "persona_roles", multiple=True, help="Expert role (repeatable)")
 @click.option("--personas", "personas_file", default=None, help="Path to personas JSON file")
 @click.option("--doc", "doc_paths", multiple=True, help="Document file to load (repeatable)")
-def main(topic, provider, model, agents, rounds, depth, one_shot, proxy, save_path, persona_roles, personas_file, doc_paths):
+def main(topic, provider, model, agents, rounds, depth, one_shot, save_path, persona_roles, personas_file, doc_paths):
     """Chamber CLI — Private expert panels in your terminal."""
     if persona_roles and personas_file:
         click.echo("Cannot use both --persona and --personas. Pick one.", err=True)
@@ -35,7 +34,6 @@ def main(topic, provider, model, agents, rounds, depth, one_shot, proxy, save_pa
         agents=min(agents, 5) if agents else None,
         rounds=min(rounds, 5) if rounds else None,
         depth=depth,
-        proxy=proxy,
     )
 
     # Import providers to trigger registration

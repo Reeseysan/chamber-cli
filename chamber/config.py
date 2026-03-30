@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 WORD_LIMITS = {
     "brief":    {1: 100, 2: 150},
@@ -33,6 +35,18 @@ def get_summary_limit(depth: str) -> int:
     return SUMMARY_LIMITS.get(depth, 200)
 
 
+_LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+
+
+def is_localhost(url: str) -> bool:
+    """Check if a URL points to a local address."""
+    try:
+        parsed = urlparse(url)
+        return (parsed.hostname or "").lower() in _LOCALHOST_HOSTS
+    except Exception:
+        return False
+
+
 @dataclass
 class Config:
     provider: str = "ollama"
@@ -42,7 +56,6 @@ class Config:
     depth: str = "standard"
     ollama_url: str = "http://localhost:11434"
     lmstudio_url: str = "http://localhost:1234"
-    proxy: str | None = None
 
     @classmethod
     def from_env(cls, **overrides) -> Config:
@@ -55,9 +68,21 @@ class Config:
             "depth": os.environ.get("CHAMBER_DEPTH", "standard"),
             "ollama_url": os.environ.get("CHAMBER_OLLAMA_URL", "http://localhost:11434"),
             "lmstudio_url": os.environ.get("CHAMBER_LMSTUDIO_URL", "http://localhost:1234"),
-            "proxy": os.environ.get("CHAMBER_PROXY"),
         }
         for key, value in overrides.items():
             if value is not None:
                 env_values[key] = value
-        return cls(**env_values)
+
+        config = cls(**env_values)
+
+        # Warn if any provider URL points to a non-localhost address
+        for name, url in [("Ollama", config.ollama_url), ("LM Studio", config.lmstudio_url)]:
+            if not is_localhost(url):
+                print(
+                    f"\n  WARNING: {name} URL points to a remote host ({url}).\n"
+                    f"  Data WILL be sent over the network. The privacy guarantee\n"
+                    f"  only applies when using localhost providers.\n",
+                    file=sys.stderr,
+                )
+
+        return config
