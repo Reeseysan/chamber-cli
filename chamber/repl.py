@@ -16,7 +16,9 @@ from chamber.persona import generate_personas
 from chamber.orchestrator import Orchestrator
 from chamber.export import export_markdown, export_encrypted
 from chamber.providers.base import LLMProvider
+from chamber.providers import discover_providers, get_provider
 from chamber.document import load_document, DocumentError
+from chamber.output import make_text_callbacks
 
 VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc", "update", "provider", "model"}
 
@@ -41,7 +43,7 @@ Commands:
   /export             Export session as markdown to stdout
   /export --encrypt   Export with passphrase encryption
   /save <path>        Write export to a file
-  /provider [name]    Switch provider (ollama, lmstudio) or show current
+  /provider [name]    Switch provider or show current
   /model [name]       Switch model or show current
   /new                Clear session, start fresh topic
   /status             Show provider, model, session stats
@@ -99,14 +101,26 @@ class ChamberREPL:
         model_name = self.config.model or getattr(self.provider, "model", None) or "default"
         self._print(f"Provider: {self.config.provider} ({model_name})")
         self._print()
-        self._print("  Privacy: No data leaves your machine. No telemetry. No account required.")
-        self._print("           All processing is local. Nothing is written to disk.")
+        from chamber.config import is_remote_provider
+        if is_remote_provider(self.config.provider):
+            self._print("  Privacy: Remote provider — data is sent to a third-party API.")
+            self._print("           Use --proxy for Tor routing if needed.")
+        else:
+            self._print("  Privacy: No data leaves your machine. No telemetry. No account required.")
+            self._print("           All processing is local. Nothing is written to disk.")
         self._print()
         self._print("  Note:    Outputs are AI-generated for informational purposes only.")
         self._print("           Not legal, financial, medical, or professional advice.")
         self._print()
         self._print("Type /help for commands.")
         self._print()
+
+    def _make_callbacks(self) -> dict:
+        """Create orchestrator callbacks bound to this REPL's print methods."""
+        return make_text_callbacks(
+            printer=self._print,
+            token_writer=lambda t: self._print_token("", t),
+        )
 
     async def _handle_topic(self, topic: str) -> None:
         self._print()
@@ -120,38 +134,16 @@ class ChamberREPL:
         self._print(f"Panel: {panel_names}")
         self._print()
 
+        callbacks = self._make_callbacks()
         self.orchestrator = Orchestrator(
             session=self.session,
             provider=self.provider,
             max_rounds=self.config.rounds,
             depth=self.config.depth,
-            on_token=self._print_token,
-            on_round_start=lambda r: self._print(f"\n{'─' * 2} Round {r} {'─' * 48}\n"),
-            on_agent_start=lambda name: self._print(f"[{name}]"),
-            on_agent_done=lambda name, text: self._print("\n"),
-            on_moderator=lambda text: (self._print(f"{'─' * 2} Moderator {'─' * 45}"), self._print(text), self._print()),
-            on_consensus=lambda result: self._print_consensus(result),
+            **{k: v for k, v in callbacks.items() if not k.startswith("_")},
         )
 
         await self.orchestrator.run()
-
-    def _print_consensus(self, result: ConsensusResult) -> None:
-        self._print(f"\n{'═' * 56}")
-        if result.reached:
-            self._print("CONSENSUS REACHED")
-        else:
-            self._print("DISCUSSION ENDED (no full consensus)")
-        self._print(f"{'═' * 56}")
-        self._print(result.summary)
-        if result.key_points:
-            self._print("\nKey points:")
-            for point in result.key_points:
-                self._print(f"  - {point}")
-        if result.dissenting_views:
-            self._print("\nDissenting views:")
-            for view in result.dissenting_views:
-                self._print(f"  - {view}")
-        self._print()
 
     async def _handle_command(self, cmd: Command) -> bool:
         """Handle a command. Returns True if REPL should exit."""
@@ -190,46 +182,7 @@ class ChamberREPL:
             return False
 
         if cmd.name == "provider":
-            name = cmd.args.strip().lower()
-            if not name:
-                self._print(f"Current: {self.config.provider} ({getattr(self.provider, 'model', 'default')})")
-                self._print("Available: ollama, lmstudio")
-                self._print("Usage: /provider ollama  or  /provider lmstudio")
-                return False
-            if name not in ("ollama", "lmstudio"):
-                self._print(f"Unknown provider '{name}'. Available: ollama, lmstudio")
-                return False
-            import httpx
-            from chamber.providers import get_provider
-            from chamber.config import is_localhost
-            url = self.config.ollama_url if name == "ollama" else self.config.lmstudio_url
-            if not is_localhost(url):
-                self._print(f"WARNING: {url} is not localhost. Data will leave your machine.")
-                self._print("The privacy guarantee only applies to local providers.")
-            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
-            try:
-                resp = httpx.get(check_url, timeout=3)
-                kwargs = {"base_url": url}
-                # Auto-detect model
-                if name == "lmstudio":
-                    try:
-                        models = resp.json().get("data", [])
-                        if models:
-                            kwargs["model"] = models[0].get("id", "local-model")
-                    except Exception:
-                        pass
-                elif name == "ollama" and self.config.model:
-                    kwargs["model"] = self.config.model
-                self.provider = get_provider(name, **kwargs)
-                self.config.provider = name
-                self.config.model = getattr(self.provider, "model", None)
-                self._print(f"Switched to {name} ({self.config.model or 'default'})")
-            except (httpx.ConnectError, httpx.TimeoutException):
-                self._print(f"{name} is not running at {url}")
-                if name == "lmstudio":
-                    self._print("Start the server: LM Studio → Developer → Start Server")
-                else:
-                    self._print("Start Ollama: ollama serve")
+            await self._handle_provider_switch(cmd.args.strip().lower())
             return False
 
         if cmd.name == "model":
@@ -349,7 +302,9 @@ class ChamberREPL:
                         if "chamber-cli" in line.lower():
                             new_ver = line.strip()
                     self._print(f"Updated. {new_ver}")
-                    self._print("Restart chamber to use the new version.")
+                    self._print("Restarting chamber...")
+                    import os
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
                 else:
                     self._print(f"Already on the latest version (v{__version__}).")
             except subprocess.TimeoutExpired:
@@ -365,6 +320,73 @@ class ChamberREPL:
             return False
 
         return False
+
+    async def _handle_provider_switch(self, name: str) -> None:
+        """Handle /provider command — now supports all registered providers."""
+        available = discover_providers()
+
+        if not name:
+            self._print(f"Current: {self.config.provider} ({getattr(self.provider, 'model', 'default')})")
+            self._print(f"Available: {', '.join(available)}")
+            self._print("Usage: /provider <name>")
+            return
+
+        if name not in available:
+            self._print(f"Unknown provider '{name}'. Available: {', '.join(available)}")
+            return
+
+        from chamber.provider_resolver import LOCAL_PROVIDERS, REMOTE_PROVIDER_KEYS
+        from chamber.config import is_localhost
+        import httpx
+        import os
+
+        if name in LOCAL_PROVIDERS:
+            # Local provider — check connectivity
+            url = self.config.ollama_url if name == "ollama" else self.config.lmstudio_url
+            if not is_localhost(url):
+                self._print(f"WARNING: {url} is not localhost. Data will leave your machine.")
+            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
+            try:
+                resp = httpx.get(check_url, timeout=3)
+                kwargs: dict = {"base_url": url}
+                if name == "lmstudio":
+                    try:
+                        models = resp.json().get("data", [])
+                        if models:
+                            kwargs["model"] = models[0].get("id", "local-model")
+                    except Exception:
+                        pass
+                elif self.config.model:
+                    kwargs["model"] = self.config.model
+                self.provider = get_provider(name, **kwargs)
+                self.config.provider = name
+                self.config.model = getattr(self.provider, "model", None)
+                self._print(f"Switched to {name} ({self.config.model or 'default'})")
+            except (httpx.ConnectError, httpx.TimeoutException):
+                self._print(f"{name} is not running at {url}")
+                if name == "lmstudio":
+                    self._print("Start the server: LM Studio → Developer → Start Server")
+                else:
+                    self._print("Start Ollama: ollama serve")
+        else:
+            # Remote provider — check for API key
+            env_key = REMOTE_PROVIDER_KEYS.get(name)
+            if env_key and not os.environ.get(env_key):
+                self._print(f"No API key set. Export {env_key} first.")
+                return
+            try:
+                kwargs = {}
+                if self.config.model:
+                    kwargs["model"] = self.config.model
+                if self.config.proxy:
+                    kwargs["proxy"] = self.config.proxy
+                self.provider = get_provider(name, **kwargs)
+                self.config.provider = name
+                self.config.model = getattr(self.provider, "model", None)
+                self._print(f"Switched to {name} ({self.config.model or 'default'})")
+                self._print("NOTE: Data will be sent to a remote API.")
+            except ValueError as e:
+                self._print(f"Error: {e}")
 
     async def run(self) -> None:
         """Main REPL loop."""

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chamber.models import Session, Persona
+from chamber.models import Session, SessionStatus, Persona
 
 
 def create_session(topic: str, personas: list[Persona]) -> Session:
@@ -8,5 +8,6 @@ def create_session(topic: str, personas: list[Persona]) -> Session:
     return Session(
         topic=topic,
         personas=personas,
-        status="idle",
+        status=SessionStatus.IDLE,
     )
+

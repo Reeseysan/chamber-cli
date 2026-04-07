@@ -12,7 +12,7 @@ from chamber.config import Config, get_word_limit
 @click.command()
 @click.version_option(__version__, prog_name="Chamber CLI")
 @click.argument("topic", required=False, default=None)
-@click.option("--provider", default=None, help="Provider to use (ollama, lmstudio)")
+@click.option("--provider", default=None, help="Provider to use (ollama, lmstudio, openai, anthropic, openrouter)")
 @click.option("--model", default=None, help="Model name to use")
 @click.option("--agents", default=None, type=int, help="Number of expert agents (default: 3, max: 5)")
 @click.option("--rounds", default=None, type=int, help="Max discussion rounds (default: 3, max: 5)")
@@ -22,10 +22,56 @@ from chamber.config import Config, get_word_limit
 @click.option("--persona", "persona_roles", multiple=True, help="Expert role (repeatable)")
 @click.option("--personas", "personas_file", default=None, help="Path to personas JSON file")
 @click.option("--doc", "doc_paths", multiple=True, help="Document file to load (repeatable)")
-def main(topic, provider, model, agents, rounds, depth, one_shot, save_path, persona_roles, personas_file, doc_paths):
+@click.option("--template", "template_name", default=None, help="Use a preset panel template (e.g. legal-review, code-review)")
+@click.option("--list-templates", is_flag=True, help="List available panel templates and exit")
+@click.option("--format", "output_format", default="text", type=click.Choice(["text", "json"]), help="Output format (default: text)")
+@click.option("--proxy", default=None, help="SOCKS5 proxy URL (e.g. socks5://localhost:9050)")
+@click.option("--git-diff", is_flag=True, help="Ingest current git diff as document context")
+@click.option("--git-staged", is_flag=True, help="Ingest staged git changes as document context")
+@click.option("--git-pr", default=None, type=int, help="Ingest PR diff as document context (PR number)")
+@click.option("--resume", "resume_path", default=None, help="Resume a previously exported session")
+@click.option("--install-completions", is_flag=True, help="Print shell completion install instructions")
+@click.option("--serve", is_flag=True, help="Start as MCP server (Model Context Protocol)")
+def main(
+    topic, provider, model, agents, rounds, depth, one_shot, save_path,
+    persona_roles, personas_file, doc_paths, template_name, list_templates,
+    output_format, proxy, git_diff, git_staged, git_pr, resume_path,
+    install_completions, serve,
+):
     """Chamber CLI — Private expert panels in your terminal."""
+
+    # --- Early-exit commands ---
+
+    if install_completions:
+        from chamber.completions import install_completions as do_install
+        do_install()
+        return
+
+    if list_templates:
+        from chamber.templates import list_templates as get_templates
+        templates = get_templates()
+        if not templates:
+            click.echo("No templates found.")
+        else:
+            click.echo("Available templates:\n")
+            for t in templates:
+                click.echo(f"  {t['name']:20s} {t['description']}")
+            click.echo(f"\nUsage: chamber --template <name> \"your topic\"")
+        return
+
+    if serve:
+        from chamber.mcp_server import run_mcp_server
+        run_mcp_server()
+        return
+
+    # --- Validation ---
+
     if persona_roles and personas_file:
         click.echo("Cannot use both --persona and --personas. Pick one.", err=True)
+        sys.exit(1)
+
+    if template_name and (persona_roles or personas_file):
+        click.echo("Cannot use --template with --persona/--personas. Pick one.", err=True)
         sys.exit(1)
 
     config = Config.from_env(
@@ -34,182 +80,300 @@ def main(topic, provider, model, agents, rounds, depth, one_shot, save_path, per
         agents=min(agents, 5) if agents else None,
         rounds=min(rounds, 5) if rounds else None,
         depth=depth,
+        proxy=proxy,
     )
 
-    # Import providers to trigger registration
-    import chamber.providers.ollama  # noqa: F401
-    import chamber.providers.lmstudio  # noqa: F401
-    from chamber.providers import get_provider
+    # --- Provider setup ---
 
-    llm = None
-    explicit_provider = provider is not None
+    from chamber.provider_resolver import resolve_provider
+    llm = resolve_provider(config, provider)
 
-    if explicit_provider:
-        kwargs = {"model": config.model} if config.model else {}
-        if config.provider == "ollama":
-            kwargs["base_url"] = config.ollama_url
-        elif config.provider == "lmstudio":
-            kwargs["base_url"] = config.lmstudio_url
-        try:
-            llm = get_provider(config.provider, **kwargs)
-        except KeyError:
-            click.echo(f"Unknown provider: {config.provider}", err=True)
-            sys.exit(1)
-    else:
-        import httpx
-        for name, url in [("ollama", config.ollama_url), ("lmstudio", config.lmstudio_url)]:
-            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
-            try:
-                resp = httpx.get(check_url, timeout=3)
-                kwargs = {"base_url": url}
-                if config.model:
-                    kwargs["model"] = config.model
-                elif name == "lmstudio":
-                    # Auto-detect loaded model from LM Studio
-                    try:
-                        models = resp.json().get("data", [])
-                        if models:
-                            kwargs["model"] = models[0].get("id", "local-model")
-                    except Exception:
-                        pass
-                llm = get_provider(name, **kwargs)
-                config.provider = name
-                # Update config.model so banner shows the real model
-                config.model = getattr(llm, "model", config.model)
-                break
-            except (httpx.ConnectError, httpx.TimeoutException):
-                continue
+    # --- Git-aware document ingestion ---
 
-        if llm is None:
-            click.echo(
-                "No local model server detected.\n"
-                f"  Ollama:    not running at {config.ollama_url}\n"
-                f"  LM Studio: not running at {config.lmstudio_url}\n\n"
-                "Install Ollama: https://ollama.com\n"
-                "Or start LM Studio's local server in Developer tab.",
-                err=True,
-            )
-            sys.exit(1)
+    document_context = _load_git_context(git_diff, git_staged, git_pr)
+    if document_context and not template_name and not persona_roles and not personas_file:
+        template_name = "code-review"
+    if document_context and not topic:
+        topic = "Review the following code changes"
 
-    # Load documents
-    document_context = ""
-    if doc_paths:
-        from chamber.document import load_document, DocumentError
-        parts = []
-        for path in doc_paths:
-            try:
-                parts.append(load_document(path))
-            except DocumentError as e:
-                click.echo(f"Error loading {path}: {e}", err=True)
-                sys.exit(1)
-        document_context = "\n\n".join(parts)
+    # --- Load documents ---
 
-    # Check stdin for piped content
-    if not sys.stdin.isatty():
-        from chamber.document import load_from_stdin, DocumentError
-        try:
-            stdin_doc = load_from_stdin(sys.stdin)
-            if document_context:
-                document_context += "\n\n" + stdin_doc
-            else:
-                document_context = stdin_doc
-        except DocumentError:
-            pass  # Empty stdin is fine
+    document_context = _load_documents(doc_paths, document_context)
+    document_context = _load_stdin(document_context)
+
+    # --- Session resume ---
+
+    if resume_path:
+        asyncio.run(_resume(config, llm, resume_path, one_shot, output_format, save_path, document_context))
+        return
+
+    # --- Main flow ---
 
     if one_shot:
         if not topic:
             click.echo("No topic provided. Usage: chamber \"your topic\" --one-shot", err=True)
             sys.exit(1)
-        asyncio.run(_one_shot(config, llm, topic, save_path, persona_roles, personas_file, document_context))
+        asyncio.run(_one_shot(config, llm, topic, save_path, persona_roles, personas_file, document_context, template_name, output_format))
     else:
-        asyncio.run(_repl(config, llm, topic, persona_roles, personas_file, document_context))
+        asyncio.run(_repl(config, llm, topic, persona_roles, personas_file, document_context, template_name))
 
 
-async def _one_shot(config, provider, topic, save_path, persona_roles, personas_file, document_context):
-    from chamber.persona import generate_personas, generate_personas_from_roles, load_personas_from_file
+# ---------------------------------------------------------------------------
+# Input helpers
+# ---------------------------------------------------------------------------
+
+def _load_git_context(git_diff: bool, git_staged: bool, git_pr: int | None) -> str:
+    """Load git diff as document context if any git flags are set."""
+    if not (git_diff or git_staged or git_pr is not None):
+        return ""
+
+    from chamber.git import get_git_diff, get_git_pr_diff, GitError
+    try:
+        if git_pr is not None:
+            return get_git_pr_diff(pr_number=git_pr)
+        elif git_staged:
+            return get_git_diff(staged=True)
+        else:
+            return get_git_diff(staged=False)
+    except GitError as e:
+        click.echo(f"Git error: {e}", err=True)
+        sys.exit(1)
+
+
+def _load_documents(doc_paths: tuple, existing_context: str) -> str:
+    """Load document files and append to existing context."""
+    if not doc_paths:
+        return existing_context
+
+    from chamber.document import load_document, DocumentError
+    parts = []
+    for path in doc_paths:
+        try:
+            parts.append(load_document(path))
+        except DocumentError as e:
+            click.echo(f"Error loading {path}: {e}", err=True)
+            sys.exit(1)
+
+    new_docs = "\n\n".join(parts)
+    return f"{existing_context}\n\n{new_docs}".strip() if existing_context else new_docs
+
+
+def _load_stdin(existing_context: str) -> str:
+    """Load piped stdin content."""
+    if sys.stdin.isatty():
+        return existing_context
+
+    from chamber.document import load_from_stdin, DocumentError
+    try:
+        stdin_doc = load_from_stdin(sys.stdin)
+        return f"{existing_context}\n\n{stdin_doc}".strip() if existing_context else stdin_doc
+    except DocumentError:
+        return existing_context
+
+
+# ---------------------------------------------------------------------------
+# Persona resolution
+# ---------------------------------------------------------------------------
+
+def _get_personas(config, provider, topic, persona_roles, personas_file, template_name, word_limit):
+    """Resolve personas from template, file, roles, or auto-generate.
+    
+    Returns (personas, is_sync). If is_sync is False, caller must await generation.
+    """
+    if template_name:
+        from chamber.templates import load_template, template_to_personas
+        tmpl = load_template(template_name)
+        personas = template_to_personas(tmpl, word_limit)
+        overrides = tmpl.get("config_overrides", {})
+        for key, val in overrides.items():
+            if hasattr(config, key):
+                setattr(config, key, val)
+        return personas, True
+
+    if personas_file:
+        from chamber.persona import load_personas_from_file
+        return load_personas_from_file(personas_file), True
+
+    return None, False  # needs async generation
+
+
+# ---------------------------------------------------------------------------
+# Run modes
+# ---------------------------------------------------------------------------
+
+async def _one_shot(config, provider, topic, save_path, persona_roles, personas_file, document_context, template_name, output_format):
+    from chamber.persona import generate_personas, generate_personas_from_roles
     from chamber.session import create_session
     from chamber.orchestrator import Orchestrator
     from chamber.export import export_markdown
+    from chamber.formatters import format_session_json
+    from chamber.output import make_text_callbacks, make_silent_callbacks, get_last_consensus
 
     word_limit = get_word_limit(config.depth, 1)
+    is_json = output_format == "json"
 
-    if personas_file:
-        personas = load_personas_from_file(personas_file)
-    elif persona_roles:
-        print("Generating panel from roles...", flush=True)
-        personas = await generate_personas_from_roles(
-            roles=list(persona_roles), topic=topic, provider=provider, word_limit=word_limit
-        )
-    else:
-        print("Generating panel...", flush=True)
-        personas = await generate_personas(topic, provider, count=config.agents, word_limit=word_limit)
+    personas, is_sync = _get_personas(config, provider, topic, persona_roles, personas_file, template_name, word_limit)
+
+    if personas is None:
+        if persona_roles:
+            if not is_json:
+                print("Generating panel from roles...", flush=True)
+            personas = await generate_personas_from_roles(
+                roles=list(persona_roles), topic=topic, provider=provider, word_limit=word_limit
+            )
+        else:
+            if not is_json:
+                print("Generating panel...", flush=True)
+            personas = await generate_personas(topic, provider, count=config.agents, word_limit=word_limit)
 
     session = create_session(topic, personas)
     session.document_context = document_context
 
-    panel_names = ", ".join(p.name for p in personas)
-    print(f"Panel: {panel_names}\n", flush=True)
+    if not is_json:
+        print(f"Panel: {', '.join(p.name for p in personas)}\n", flush=True)
 
-    def on_token(name, token):
-        sys.stdout.write(token)
-        sys.stdout.flush()
+    callbacks = make_silent_callbacks() if is_json else make_text_callbacks()
 
     orchestrator = Orchestrator(
         session=session,
         provider=provider,
         max_rounds=config.rounds,
         depth=config.depth,
-        on_token=on_token,
-        on_round_start=lambda r: print(f"\n{'─' * 2} Round {r} {'─' * 48}\n"),
-        on_agent_start=lambda name: print(f"[{name}]"),
-        on_agent_done=lambda name, text: print(),
-        on_moderator=lambda text: print(f"{'─' * 2} Moderator {'─' * 45}\n{text}\n"),
-        on_consensus=lambda result: print(f"\n{'═' * 56}\n{result.summary}\n"),
+        **{k: v for k, v in callbacks.items() if not k.startswith("_")},
     )
 
     await orchestrator.run()
 
-    if save_path:
+    if is_json:
+        print(format_session_json(session, get_last_consensus(callbacks)))
+    elif save_path:
         md = export_markdown(session)
         with open(save_path, "w") as f:
             f.write(md)
         print(f"\nSaved to {save_path}", flush=True)
 
 
-async def _repl(config, provider, initial_topic, persona_roles, personas_file, document_context):
+async def _resume(config, provider, resume_path, one_shot, output_format, save_path, extra_document_context):
+    from chamber.resume import load_session_file
+    from chamber.orchestrator import Orchestrator
+    from chamber.export import export_markdown
+    from chamber.formatters import format_session_json
+    from chamber.output import make_text_callbacks, make_silent_callbacks, get_last_consensus
+
+    # Detect encryption
+    passphrase = None
+    with open(resume_path, "rb") as f:
+        head = f.read(64)
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError:
+        import getpass
+        passphrase = getpass.getpass("Passphrase: ")
+
+    try:
+        session = load_session_file(resume_path, passphrase)
+    except Exception as e:
+        click.echo(f"Failed to load session: {e}", err=True)
+        sys.exit(1)
+
+    if extra_document_context:
+        if session.document_context:
+            session.document_context += "\n\n" + extra_document_context
+        else:
+            session.document_context = extra_document_context
+
+    from chamber.models import SessionStatus
+    session.status = SessionStatus.IDLE
+    is_json = output_format == "json"
+
+    if not is_json:
+        click.echo(f"Resumed session: {session.topic}")
+        click.echo(f"Panel: {', '.join(p.name for p in session.personas)}")
+        click.echo(f"Messages: {len(session.messages)}, Last round: {session.current_round}")
+        click.echo()
+
+    if one_shot:
+        callbacks = make_silent_callbacks() if is_json else make_text_callbacks()
+
+        orchestrator = Orchestrator(
+            session=session,
+            provider=provider,
+            max_rounds=config.rounds,
+            depth=config.depth,
+            **{k: v for k, v in callbacks.items() if not k.startswith("_")},
+        )
+
+        await orchestrator.run()
+
+        if is_json:
+            print(format_session_json(session, get_last_consensus(callbacks)))
+        elif save_path:
+            md = export_markdown(session)
+            with open(save_path, "w") as f:
+                f.write(md)
+            print(f"\nSaved to {save_path}", flush=True)
+    else:
+        from chamber.repl import ChamberREPL, parse_command
+        from chamber.output import make_text_callbacks
+
+        repl = ChamberREPL(config=config, provider=provider)
+        repl._print_banner()
+        repl.session = session
+
+        repl_callbacks = make_text_callbacks(printer=repl._print, token_writer=lambda t: repl._print_token("", t))
+        repl.orchestrator = Orchestrator(
+            session=session,
+            provider=provider,
+            max_rounds=config.rounds,
+            depth=config.depth,
+            **{k: v for k, v in repl_callbacks.items() if not k.startswith("_")},
+        )
+
+        repl._print("Session resumed. Use /follow to continue the discussion.\n")
+
+        while True:
+            try:
+                text = await repl.prompt_session.prompt_async("> ")
+                cmd = parse_command(text)
+                if await repl._handle_command(cmd):
+                    break
+            except (KeyboardInterrupt, EOFError):
+                break
+        repl._print("Session destroyed. Goodbye.")
+
+
+async def _repl(config, provider, initial_topic, persona_roles, personas_file, document_context, template_name):
     from chamber.repl import ChamberREPL, parse_command
+    from chamber.output import make_text_callbacks
 
     repl = ChamberREPL(config=config, provider=provider)
 
     if initial_topic:
         repl._print_banner()
 
-        if personas_file:
-            from chamber.persona import load_personas_from_file
+        word_limit = get_word_limit(config.depth, 1)
+        personas, is_sync = _get_personas(config, provider, initial_topic, persona_roles, personas_file, template_name, word_limit)
+
+        if personas is not None:
             from chamber.session import create_session
             from chamber.orchestrator import Orchestrator
-            personas = load_personas_from_file(personas_file)
+
             repl.session = create_session(initial_topic, personas)
             if document_context:
                 repl.session.document_context = document_context
-            panel_names = ", ".join(p.name for p in personas)
-            repl._print(f"Panel: {panel_names}\n")
+            repl._print(f"Panel: {', '.join(p.name for p in personas)}\n")
+
+            repl_callbacks = make_text_callbacks(printer=repl._print, token_writer=lambda t: repl._print_token("", t))
             repl.orchestrator = Orchestrator(
                 session=repl.session, provider=provider,
                 max_rounds=config.rounds, depth=config.depth,
-                on_token=repl._print_token,
-                on_round_start=lambda r: repl._print(f"\n{'─' * 2} Round {r} {'─' * 48}\n"),
-                on_agent_start=lambda name: repl._print(f"[{name}]"),
-                on_agent_done=lambda name, text: repl._print("\n"),
-                on_moderator=lambda text: (repl._print(f"{'─' * 2} Moderator {'─' * 45}"), repl._print(text), repl._print()),
-                on_consensus=lambda result: repl._print_consensus(result),
+                **{k: v for k, v in repl_callbacks.items() if not k.startswith("_")},
             )
             await repl.orchestrator.run()
         elif persona_roles:
             from chamber.persona import generate_personas_from_roles
             from chamber.session import create_session
             from chamber.orchestrator import Orchestrator
-            word_limit = get_word_limit(config.depth, 1)
             repl._print("Generating panel from roles...")
             personas = await generate_personas_from_roles(
                 roles=list(persona_roles), topic=initial_topic, provider=provider, word_limit=word_limit
@@ -217,17 +381,13 @@ async def _repl(config, provider, initial_topic, persona_roles, personas_file, d
             repl.session = create_session(initial_topic, personas)
             if document_context:
                 repl.session.document_context = document_context
-            panel_names = ", ".join(p.name for p in personas)
-            repl._print(f"Panel: {panel_names}\n")
+            repl._print(f"Panel: {', '.join(p.name for p in personas)}\n")
+
+            repl_callbacks = make_text_callbacks(printer=repl._print, token_writer=lambda t: repl._print_token("", t))
             repl.orchestrator = Orchestrator(
                 session=repl.session, provider=provider,
                 max_rounds=config.rounds, depth=config.depth,
-                on_token=repl._print_token,
-                on_round_start=lambda r: repl._print(f"\n{'─' * 2} Round {r} {'─' * 48}\n"),
-                on_agent_start=lambda name: repl._print(f"[{name}]"),
-                on_agent_done=lambda name, text: repl._print("\n"),
-                on_moderator=lambda text: (repl._print(f"{'─' * 2} Moderator {'─' * 45}"), repl._print(text), repl._print()),
-                on_consensus=lambda result: repl._print_consensus(result),
+                **{k: v for k, v in repl_callbacks.items() if not k.startswith("_")},
             )
             await repl.orchestrator.run()
         else:

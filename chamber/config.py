@@ -37,6 +37,9 @@ def get_summary_limit(depth: str) -> int:
 
 _LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 
+# Providers that send data over the network
+REMOTE_PROVIDERS = {"openai", "anthropic", "openrouter"}
+
 
 def is_localhost(url: str) -> bool:
     """Check if a URL points to a local address."""
@@ -45,6 +48,11 @@ def is_localhost(url: str) -> bool:
         return (parsed.hostname or "").lower() in _LOCALHOST_HOSTS
     except Exception:
         return False
+
+
+def is_remote_provider(provider: str) -> bool:
+    """Check if a provider sends data over the network."""
+    return provider in REMOTE_PROVIDERS
 
 
 @dataclass
@@ -56,6 +64,7 @@ class Config:
     depth: str = "standard"
     ollama_url: str = "http://localhost:11434"
     lmstudio_url: str = "http://localhost:1234"
+    proxy: str | None = None
 
     @classmethod
     def from_env(cls, **overrides) -> Config:
@@ -68,6 +77,7 @@ class Config:
             "depth": os.environ.get("CHAMBER_DEPTH", "standard"),
             "ollama_url": os.environ.get("CHAMBER_OLLAMA_URL", "http://localhost:11434"),
             "lmstudio_url": os.environ.get("CHAMBER_LMSTUDIO_URL", "http://localhost:1234"),
+            "proxy": os.environ.get("CHAMBER_PROXY"),
         }
         for key, value in overrides.items():
             if value is not None:
@@ -84,5 +94,14 @@ class Config:
                     f"  only applies when using localhost providers.\n",
                     file=sys.stderr,
                 )
+
+        # Warn if using a remote provider
+        if is_remote_provider(config.provider):
+            print(
+                f"\n  NOTICE: Using remote provider '{config.provider}'.\n"
+                f"  Your discussion data will be sent to a third-party API.\n"
+                f"  The local-only privacy guarantee does not apply.\n",
+                file=sys.stderr,
+            )
 
         return config

@@ -1,6 +1,7 @@
 import pytest
 from click.testing import CliRunner
 
+from chamber import __version__
 from chamber.cli import main
 
 
@@ -8,7 +9,7 @@ def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.3.1" in result.output
+    assert __version__ in result.output
 
 
 def test_cli_help():

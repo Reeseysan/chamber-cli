@@ -61,11 +61,11 @@ async def test_lmstudio_stream_completion():
 
 def test_lmstudio_default_config():
     p = LMStudioProvider()
-    assert p.base_url == "http://localhost:1234"
+    assert p._url == "http://localhost:1234"
     assert p.model == "local-model"
 
 
 def test_lmstudio_custom_config():
     p = LMStudioProvider(base_url="http://myhost:5555", model="my-model")
-    assert p.base_url == "http://myhost:5555"
+    assert p._url == "http://myhost:5555"
     assert p.model == "my-model"

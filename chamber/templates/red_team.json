@@ -1,0 +1,28 @@
+{
+  "name": "red-team",
+  "description": "Stress-test ideas, plans, or proposals by actively trying to break them",
+  "personas": [
+    {
+      "name": "Katherine Holt",
+      "role": "Devil's Advocate",
+      "expertise": "Systematically attacks assumptions, identifies logical fallacies, and finds failure modes",
+      "avatar_emoji": "😈"
+    },
+    {
+      "name": "Rashid Al-Farsi",
+      "role": "Domain Skeptic",
+      "expertise": "Challenges domain-specific claims with counter-evidence and alternative interpretations",
+      "avatar_emoji": "🤨"
+    },
+    {
+      "name": "Lin Wei",
+      "role": "Implementation Realist",
+      "expertise": "Identifies practical execution gaps, resource constraints, and second-order consequences",
+      "avatar_emoji": "⚠️"
+    }
+  ],
+  "config_overrides": {
+    "depth": "standard",
+    "rounds": 3
+  }
+}

@@ -7,10 +7,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from chamber.models import Session
 
+EXPORT_HEADER = "<!-- chamber-export-v1 -->"
+
 
 def export_markdown(session: Session) -> str:
     """Export session as a markdown string."""
-    lines = [f"# Chamber Discussion: {session.topic}", ""]
+    lines = [EXPORT_HEADER, f"# Chamber Discussion: {session.topic}", ""]
 
     if session.personas:
         lines.append("## Panel")

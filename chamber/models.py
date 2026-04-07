@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from enum import Enum
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,14 @@ class Message(BaseModel):
     round_number: int = 0
 
 
+class SessionStatus(str, Enum):
+    """Session lifecycle states."""
+    IDLE = "idle"
+    DISCUSSING = "discussing"
+    CONSENSUS = "consensus"
+    ENDED = "ended"
+
+
 class ConsensusResult(BaseModel):
     reached: bool = False
     summary: str = ""
@@ -38,4 +47,4 @@ class Session(BaseModel):
     messages: list[Message] = []
     document_context: str = ""
     current_round: int = 0
-    status: str = "idle"
+    status: SessionStatus = SessionStatus.IDLE

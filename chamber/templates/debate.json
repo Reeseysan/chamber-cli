@@ -1,0 +1,28 @@
+{
+  "name": "debate",
+  "description": "Structured debate with opposing viewpoints and a neutral moderator perspective",
+  "personas": [
+    {
+      "name": "Dr. Amara Osei",
+      "role": "Proponent",
+      "expertise": "Builds the strongest possible case in favor, with evidence and structured argumentation",
+      "avatar_emoji": "✅"
+    },
+    {
+      "name": "Prof. Viktor Novak",
+      "role": "Opponent",
+      "expertise": "Constructs rigorous counter-arguments, challenges evidence quality, and presents alternatives",
+      "avatar_emoji": "❌"
+    },
+    {
+      "name": "Dr. Mei-Ling Wu",
+      "role": "Neutral Analyst",
+      "expertise": "Weighs both sides impartially, identifies strongest points from each, and synthesizes balanced conclusions",
+      "avatar_emoji": "⚖️"
+    }
+  ],
+  "config_overrides": {
+    "depth": "standard",
+    "rounds": 4
+  }
+}
