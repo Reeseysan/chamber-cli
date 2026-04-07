@@ -1,0 +1,28 @@
+{
+  "name": "code-review",
+  "description": "Review code changes, diffs, or pull requests",
+  "personas": [
+    {
+      "name": "Alexei Petrov",
+      "role": "Senior Software Engineer",
+      "expertise": "Evaluates code correctness, edge cases, error handling, and algorithmic efficiency",
+      "avatar_emoji": "💻"
+    },
+    {
+      "name": "Priya Sharma",
+      "role": "Security Engineer",
+      "expertise": "Identifies injection vectors, auth flaws, data exposure, and supply chain risks",
+      "avatar_emoji": "🔒"
+    },
+    {
+      "name": "Jordan Williams",
+      "role": "Architecture Reviewer",
+      "expertise": "Assesses design patterns, maintainability, API contracts, and technical debt implications",
+      "avatar_emoji": "🏗️"
+    }
+  ],
+  "config_overrides": {
+    "depth": "deep",
+    "rounds": 3
+  }
+}

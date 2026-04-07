@@ -72,11 +72,11 @@ async def test_ollama_json_completion():
 
 def test_ollama_default_config():
     p = OllamaProvider()
-    assert p.base_url == "http://localhost:11434"
+    assert p._url == "http://localhost:11434"
     assert p.model == "llama3.1"
 
 
 def test_ollama_custom_config():
     p = OllamaProvider(base_url="http://myhost:9999", model="mistral")
-    assert p.base_url == "http://myhost:9999"
+    assert p._url == "http://myhost:9999"
     assert p.model == "mistral"

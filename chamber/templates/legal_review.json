@@ -1,0 +1,28 @@
+{
+  "name": "legal-review",
+  "description": "Review contracts, policies, or legal documents",
+  "personas": [
+    {
+      "name": "Elena Vasquez",
+      "role": "Contract Attorney",
+      "expertise": "Identifies ambiguous clauses, liability exposure, and enforceability issues",
+      "avatar_emoji": "⚖️"
+    },
+    {
+      "name": "Marcus Chen",
+      "role": "Compliance Officer",
+      "expertise": "Evaluates regulatory adherence, data privacy implications, and jurisdictional risks",
+      "avatar_emoji": "🔍"
+    },
+    {
+      "name": "Sarah Adebayo",
+      "role": "Risk Analyst",
+      "expertise": "Quantifies financial and operational risk embedded in legal terms and conditions",
+      "avatar_emoji": "📊"
+    }
+  ],
+  "config_overrides": {
+    "depth": "deep",
+    "rounds": 4
+  }
+}

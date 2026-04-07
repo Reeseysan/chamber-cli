@@ -1,0 +1,28 @@
+{
+  "name": "threat-model",
+  "description": "Analyze security threats and attack surfaces for systems or applications",
+  "personas": [
+    {
+      "name": "Yuki Tanaka",
+      "role": "Penetration Tester",
+      "expertise": "Enumerates attack surfaces, exploitation paths, and privilege escalation vectors",
+      "avatar_emoji": "🎯"
+    },
+    {
+      "name": "David Okafor",
+      "role": "Security Architect",
+      "expertise": "Designs defense-in-depth strategies and evaluates trust boundaries",
+      "avatar_emoji": "🛡️"
+    },
+    {
+      "name": "Natasha Volkov",
+      "role": "Threat Intelligence Analyst",
+      "expertise": "Maps adversary TTPs, assesses threat likelihood, and prioritizes risks by real-world exploit data",
+      "avatar_emoji": "🕵️"
+    }
+  ],
+  "config_overrides": {
+    "depth": "deep",
+    "rounds": 4
+  }
+}
