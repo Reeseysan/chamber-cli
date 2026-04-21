@@ -40,6 +40,8 @@ _LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 # Providers that send data over the network
 REMOTE_PROVIDERS = {"openai", "anthropic", "openrouter"}
 
+DEFAULT_CLOUD_API_URL = "https://api.getchamber.ai/api/v1/share"
+
 
 def is_localhost(url: str) -> bool:
     """Check if a URL points to a local address."""
@@ -63,8 +65,8 @@ class Config:
     rounds: int = 3
     depth: str = "standard"
     ollama_url: str = "http://localhost:11434"
-    lmstudio_url: str = "http://localhost:1234"
     proxy: str | None = None
+    cloud_api_url: str = DEFAULT_CLOUD_API_URL
 
     @classmethod
     def from_env(cls, **overrides) -> Config:
@@ -76,8 +78,8 @@ class Config:
             "rounds": int(os.environ.get("CHAMBER_ROUNDS", "3")),
             "depth": os.environ.get("CHAMBER_DEPTH", "standard"),
             "ollama_url": os.environ.get("CHAMBER_OLLAMA_URL", "http://localhost:11434"),
-            "lmstudio_url": os.environ.get("CHAMBER_LMSTUDIO_URL", "http://localhost:1234"),
             "proxy": os.environ.get("CHAMBER_PROXY"),
+            "cloud_api_url": os.environ.get("CHAMBER_CLOUD_URL", DEFAULT_CLOUD_API_URL),
         }
         for key, value in overrides.items():
             if value is not None:
@@ -85,17 +87,14 @@ class Config:
 
         config = cls(**env_values)
 
-        # Warn if any provider URL points to a non-localhost address
-        for name, url in [("Ollama", config.ollama_url), ("LM Studio", config.lmstudio_url)]:
-            if not is_localhost(url):
-                print(
-                    f"\n  WARNING: {name} URL points to a remote host ({url}).\n"
-                    f"  Data WILL be sent over the network. The privacy guarantee\n"
-                    f"  only applies when using localhost providers.\n",
-                    file=sys.stderr,
-                )
+        if not is_localhost(config.ollama_url):
+            print(
+                f"\n  WARNING: Ollama URL points to a remote host ({config.ollama_url}).\n"
+                f"  Data WILL be sent over the network. The privacy guarantee\n"
+                f"  only applies when using localhost providers.\n",
+                file=sys.stderr,
+            )
 
-        # Warn if using a remote provider
         if is_remote_provider(config.provider):
             print(
                 f"\n  NOTICE: Using remote provider '{config.provider}'.\n"

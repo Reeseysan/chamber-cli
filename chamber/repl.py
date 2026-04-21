@@ -19,6 +19,7 @@ from chamber.providers.base import LLMProvider
 from chamber.providers import discover_providers, get_provider
 from chamber.document import load_document, DocumentError
 from chamber.output import make_text_callbacks
+from chamber.store import save_session
 
 VALID_COMMANDS = {"follow", "rounds", "agents", "export", "save", "new", "status", "quit", "help", "depth", "doc", "update", "provider", "model"}
 
@@ -144,6 +145,7 @@ class ChamberREPL:
         )
 
         await self.orchestrator.run()
+        save_session(self.session)
 
     async def _handle_command(self, cmd: Command) -> bool:
         """Handle a command. Returns True if REPL should exit."""
@@ -285,6 +287,7 @@ class ChamberREPL:
             self.orchestrator.inject_user_message(cmd.args)
             self._print("Follow-up queued. Starting next round...")
             await self.orchestrator.run()
+            save_session(self.session)
             return False
 
         if cmd.name == "update":
@@ -342,21 +345,13 @@ class ChamberREPL:
 
         if name in LOCAL_PROVIDERS:
             # Local provider — check connectivity
-            url = self.config.ollama_url if name == "ollama" else self.config.lmstudio_url
+            url = self.config.ollama_url
             if not is_localhost(url):
                 self._print(f"WARNING: {url} is not localhost. Data will leave your machine.")
-            check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
             try:
-                resp = httpx.get(check_url, timeout=3)
+                httpx.get(f"{url}/", timeout=3)
                 kwargs: dict = {"base_url": url}
-                if name == "lmstudio":
-                    try:
-                        models = resp.json().get("data", [])
-                        if models:
-                            kwargs["model"] = models[0].get("id", "local-model")
-                    except Exception:
-                        pass
-                elif self.config.model:
+                if self.config.model:
                     kwargs["model"] = self.config.model
                 self.provider = get_provider(name, **kwargs)
                 self.config.provider = name
@@ -364,10 +359,7 @@ class ChamberREPL:
                 self._print(f"Switched to {name} ({self.config.model or 'default'})")
             except (httpx.ConnectError, httpx.TimeoutException):
                 self._print(f"{name} is not running at {url}")
-                if name == "lmstudio":
-                    self._print("Start the server: LM Studio → Developer → Start Server")
-                else:
-                    self._print("Start Ollama: ollama serve")
+                self._print("Start Ollama: ollama serve")
         else:
             # Remote provider — check for API key
             env_key = REMOTE_PROVIDER_KEYS.get(name)

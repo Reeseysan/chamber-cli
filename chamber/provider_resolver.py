@@ -27,7 +27,6 @@ def _try_import(module: str) -> None:
 def import_all_providers() -> None:
     """Import all provider modules to trigger registration."""
     import chamber.providers.ollama  # noqa: F401
-    import chamber.providers.lmstudio  # noqa: F401
     _try_import("chamber.providers.openai")
     _try_import("chamber.providers.anthropic")
     _try_import("chamber.providers.openrouter")
@@ -35,11 +34,11 @@ def import_all_providers() -> None:
 
 def resolve_provider(config: Config, explicit_provider: str | None) -> LLMProvider:
     """Resolve the LLM provider — try explicit, then local, then remote.
-    
+
     Args:
         config: The application config.
         explicit_provider: Provider name from --provider flag (None if not set).
-    
+
     Returns:
         A configured LLMProvider instance.
     """
@@ -59,8 +58,7 @@ def resolve_provider(config: Config, explicit_provider: str | None) -> LLMProvid
 
     click.echo(
         "No model server or API key detected.\n"
-        f"  Ollama:     not running at {config.ollama_url}\n"
-        f"  LM Studio:  not running at {config.lmstudio_url}\n\n"
+        f"  Ollama:     not running at {config.ollama_url}\n\n"
         "Local:  Install Ollama (https://ollama.com)\n"
         "Remote: Set CHAMBER_OPENAI_API_KEY, CHAMBER_ANTHROPIC_API_KEY,\n"
         "        or CHAMBER_OPENROUTER_API_KEY in your environment.\n",
@@ -74,8 +72,6 @@ def _resolve_explicit(config: Config) -> LLMProvider:
     kwargs = {"model": config.model} if config.model else {}
     if config.provider == "ollama":
         kwargs["base_url"] = config.ollama_url
-    elif config.provider == "lmstudio":
-        kwargs["base_url"] = config.lmstudio_url
     if config.proxy:
         kwargs["proxy"] = config.proxy
     try:
@@ -90,28 +86,19 @@ def _resolve_explicit(config: Config) -> LLMProvider:
 
 
 def _try_local_providers(config: Config) -> LLMProvider | None:
-    """Try to connect to local providers (Ollama, LM Studio)."""
-    for name, url in [("ollama", config.ollama_url), ("lmstudio", config.lmstudio_url)]:
-        check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
-        try:
-            resp = httpx.get(check_url, timeout=3)
-            kwargs: dict = {"base_url": url}
-            if config.model:
-                kwargs["model"] = config.model
-            elif name == "lmstudio":
-                try:
-                    models = resp.json().get("data", [])
-                    if models:
-                        kwargs["model"] = models[0].get("id", "local-model")
-                except Exception:
-                    pass
-            llm = get_provider(name, **kwargs)
-            config.provider = name
-            config.model = getattr(llm, "model", config.model)
-            return llm
-        except (httpx.ConnectError, httpx.TimeoutException):
-            continue
-    return None
+    """Try to connect to local providers (Ollama)."""
+    try:
+        httpx.get(f"{config.ollama_url}/", timeout=3)
+    except (httpx.ConnectError, httpx.TimeoutException):
+        return None
+
+    kwargs: dict = {"base_url": config.ollama_url}
+    if config.model:
+        kwargs["model"] = config.model
+    llm = get_provider("ollama", **kwargs)
+    config.provider = "ollama"
+    config.model = getattr(llm, "model", config.model)
+    return llm
 
 
 def _try_remote_providers(config: Config) -> LLMProvider | None:
@@ -139,7 +126,7 @@ def _try_remote_providers(config: Config) -> LLMProvider | None:
 
 
 # Moved here so /provider in REPL can use the same logic
-LOCAL_PROVIDERS = {"ollama", "lmstudio"}
+LOCAL_PROVIDERS = {"ollama"}
 REMOTE_PROVIDER_KEYS = {
     "openai": "CHAMBER_OPENAI_API_KEY",
     "anthropic": "CHAMBER_ANTHROPIC_API_KEY",

@@ -2,7 +2,7 @@ import pytest
 from click.testing import CliRunner
 
 from chamber import __version__
-from chamber.cli import main
+from chamber.cli import discuss as main
 
 
 def test_cli_version():

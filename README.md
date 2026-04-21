@@ -200,7 +200,6 @@ chamber --install-completions
 | Provider | Type | Default Model |
 |----------|------|--------------|
 | Ollama | Local | llama3.1 |
-| LM Studio | Local | (auto-detect) |
 | OpenAI | Remote | gpt-4o |
 | Anthropic | Remote | claude-sonnet-4-20250514 |
 | OpenRouter | Remote | llama-3.1-8b-instruct |
@@ -253,11 +252,11 @@ Chamber CLI is designed to keep your AI discussions private from third parties. 
 | `CHAMBER_AGENTS` | `3` | Number of agents |
 | `CHAMBER_ROUNDS` | `3` | Max rounds |
 | `CHAMBER_OLLAMA_URL` | `http://localhost:11434` | Ollama server URL |
-| `CHAMBER_LMSTUDIO_URL` | `http://localhost:1234` | LM Studio server URL |
 | `CHAMBER_PROXY` | (none) | SOCKS5 proxy URL |
 | `CHAMBER_OPENAI_API_KEY` | (none) | OpenAI API key |
 | `CHAMBER_ANTHROPIC_API_KEY` | (none) | Anthropic API key |
 | `CHAMBER_OPENROUTER_API_KEY` | (none) | OpenRouter API key |
+| `CHAMBER_CLOUD_URL` | `https://api.getchamber.ai/api/v1/share` | Chamber Cloud share endpoint |
 
 ## Docker
 

@@ -127,7 +127,6 @@ def _get_provider_for_mcp(config):
 
     # Import all providers to trigger registration
     import chamber.providers.ollama  # noqa: F401
-    import chamber.providers.lmstudio  # noqa: F401
 
     # Try importing remote providers (may fail if keys not set, that's ok)
     _try_import("chamber.providers.openai")
@@ -141,27 +140,23 @@ def _get_provider_for_mcp(config):
             kwargs["model"] = config.model
         if config.provider == "ollama":
             kwargs["base_url"] = config.ollama_url
-        elif config.provider == "lmstudio":
-            kwargs["base_url"] = config.lmstudio_url
         return get_provider(config.provider, **kwargs)
 
     # Auto-detect
-    for name, url in [("ollama", config.ollama_url), ("lmstudio", config.lmstudio_url)]:
-        check_url = f"{url}/" if name == "ollama" else f"{url}/v1/models"
-        try:
-            resp = httpx.get(check_url, timeout=3)
-            kwargs = {"base_url": url}
-            if config.model:
-                kwargs["model"] = config.model
-            llm = get_provider(name, **kwargs)
-            config.provider = name
-            config.model = getattr(llm, "model", config.model)
-            return llm
-        except (httpx.ConnectError, httpx.TimeoutException):
-            continue
+    try:
+        httpx.get(f"{config.ollama_url}/", timeout=3)
+        kwargs = {"base_url": config.ollama_url}
+        if config.model:
+            kwargs["model"] = config.model
+        llm = get_provider("ollama", **kwargs)
+        config.provider = "ollama"
+        config.model = getattr(llm, "model", config.model)
+        return llm
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass
 
     raise RuntimeError(
-        "No LLM provider available. Start Ollama/LM Studio or set API keys for remote providers."
+        "No LLM provider available. Start Ollama or set API keys for remote providers."
     )
 
 
