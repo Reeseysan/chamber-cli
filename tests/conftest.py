@@ -4,7 +4,6 @@ import httpx
 import respx
 
 OLLAMA_BASE = "http://localhost:11434"
-LMSTUDIO_BASE = "http://localhost:1234"
 
 
 def make_chat_completion_chunk(content: str, finish: bool = False):

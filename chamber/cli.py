@@ -12,7 +12,7 @@ from chamber.config import Config, get_word_limit
 @click.command()
 @click.version_option(__version__, prog_name="Chamber CLI")
 @click.argument("topic", required=False, default=None)
-@click.option("--provider", default=None, help="Provider to use (ollama, lmstudio, openai, anthropic, openrouter)")
+@click.option("--provider", default=None, help="Provider to use (ollama, openai, anthropic, openrouter)")
 @click.option("--model", default=None, help="Model name to use")
 @click.option("--agents", default=None, type=int, help="Number of expert agents (default: 3, max: 5)")
 @click.option("--rounds", default=None, type=int, help="Max discussion rounds (default: 3, max: 5)")
@@ -32,7 +32,7 @@ from chamber.config import Config, get_word_limit
 @click.option("--resume", "resume_path", default=None, help="Resume a previously exported session")
 @click.option("--install-completions", is_flag=True, help="Print shell completion install instructions")
 @click.option("--serve", is_flag=True, help="Start as MCP server (Model Context Protocol)")
-def main(
+def discuss(
     topic, provider, model, agents, rounds, depth, one_shot, save_path,
     persona_roles, personas_file, doc_paths, template_name, list_templates,
     output_format, proxy, git_diff, git_staged, git_pr, resume_path,
@@ -208,6 +208,7 @@ async def _one_shot(config, provider, topic, save_path, persona_roles, personas_
     from chamber.export import export_markdown
     from chamber.formatters import format_session_json
     from chamber.output import make_text_callbacks, make_silent_callbacks, get_last_consensus
+    from chamber.store import save_session
 
     word_limit = get_word_limit(config.depth, 1)
     is_json = output_format == "json"
@@ -244,6 +245,8 @@ async def _one_shot(config, provider, topic, save_path, persona_roles, personas_
 
     await orchestrator.run()
 
+    save_session(session)
+
     if is_json:
         print(format_session_json(session, get_last_consensus(callbacks)))
     elif save_path:
@@ -259,6 +262,7 @@ async def _resume(config, provider, resume_path, one_shot, output_format, save_p
     from chamber.export import export_markdown
     from chamber.formatters import format_session_json
     from chamber.output import make_text_callbacks, make_silent_callbacks, get_last_consensus
+    from chamber.store import save_session
 
     # Detect encryption
     passphrase = None
@@ -305,6 +309,8 @@ async def _resume(config, provider, resume_path, one_shot, output_format, save_p
 
         await orchestrator.run()
 
+        save_session(session)
+
         if is_json:
             print(format_session_json(session, get_last_consensus(callbacks)))
         elif save_path:
@@ -345,6 +351,7 @@ async def _resume(config, provider, resume_path, one_shot, output_format, save_p
 async def _repl(config, provider, initial_topic, persona_roles, personas_file, document_context, template_name):
     from chamber.repl import ChamberREPL, parse_command
     from chamber.output import make_text_callbacks
+    from chamber.store import save_session
 
     repl = ChamberREPL(config=config, provider=provider)
 
@@ -370,6 +377,7 @@ async def _repl(config, provider, initial_topic, persona_roles, personas_file, d
                 **{k: v for k, v in repl_callbacks.items() if not k.startswith("_")},
             )
             await repl.orchestrator.run()
+            save_session(repl.session)
         elif persona_roles:
             from chamber.persona import generate_personas_from_roles
             from chamber.session import create_session
@@ -390,6 +398,7 @@ async def _repl(config, provider, initial_topic, persona_roles, personas_file, d
                 **{k: v for k, v in repl_callbacks.items() if not k.startswith("_")},
             )
             await repl.orchestrator.run()
+            save_session(repl.session)
         else:
             await repl._handle_topic(initial_topic)
             if repl.session and document_context:
@@ -406,3 +415,12 @@ async def _repl(config, provider, initial_topic, persona_roles, personas_file, d
         repl._print("Session destroyed. Goodbye.")
     else:
         await repl.run()
+
+
+def main() -> None:
+    """Entry point — dispatch between `chamber share` and the default discussion command."""
+    if len(sys.argv) >= 2 and sys.argv[1] == "share":
+        from chamber.share import share_command
+        share_command.main(args=sys.argv[2:], prog_name="chamber share", standalone_mode=True)
+        return
+    discuss.main(args=sys.argv[1:], prog_name="chamber", standalone_mode=True)
